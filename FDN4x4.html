@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="utf-8">
+  <meta http-equiv="x-ua-compatible" content="ie=edge">
+  <title>Web Audio Basics</title>
+  <meta name="description" content="4x4FDN Test-o">
+  <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+</head>
+<body>
+
+<div id="fdn">
+	<div class="fdn-handle"></div>
+
+	<div class="fdn-body">
+
+		<section class="master-controls">
+			
+			<input type="range" id="decay" class="control-decay" list="decay-vals" min="0" max="1" value=".5" step="0.0001" data-action="decay" />
+			<datalist id="decay-vals">
+				<option value="0" label="left">
+				<option value="1" label="right">
+			</datalist>
+			<label for="decay">Decay / fb</label>
+			</br>
+			
+			<input type="range" id="diffusion" class="control-diffusion" list="diffusion-vals" min="0" max=".5" value=".25" step="0.001" data-action="diffusion" />
+			<datalist id="diffusion-vals">
+				<option value="0" label="left">
+				<option value=".5" label="right">
+			</datalist>
+			<label for="diffusion">Diffusion</label>
+			</br>
+		
+			<input type="range" id="damping" class="control-damping" list="damping-vals" min="0" max="1" value="0" step="0.001" data-action="damping" />
+			<datalist id="damping-vals">
+				<option value="0" label="left">
+				<option value="1" label="right">
+			</datalist>
+			<label for="damping">Damping / filter cutoff</label>
+			</br>
+			
+			
+			<input type="range" id="angle" class="control-angle" list="angle-vals" min="0" max="360" value="180" step="1.0" data-action="angle" />
+			<datalist id="angle-vals">
+				<option value="0" label="left">
+				<option value="360" label="right">
+			</datalist>
+			<label for="angle">Coupling Angle</label>
+			<p id="angle_data"></p>
+			</br>
+	
+			<input type="range" id="mix" class="control-mix" list="mix-vals" min="0" max="1" value=".5" step="0.001" data-action="mix" />
+			<datalist id="mix-vals">
+				<option value="0" label="left">
+				<option value="1" label="right">
+			</datalist>
+			<label for="mix">Mix</label>
+			</br>
+				
+			<input type="range" id="volume" class="control-volume" min="1" max="2" value="1" list="volume-vals" step="0.01" data-action="volume" />
+			<datalist id="volume-vals">
+				<option value="1" label="min">
+				<option value="2" label="max">
+			</datalist>
+			<label for="volume">VOL</label>
+			</br>
+			
+<!--			
+			<input type="range" id="filtercutoff" class="control-filtercutoff" min="0" max="1" value=".5" list="filtercutoff-vals" step="0.01" data-action="filtercutoff" />
+			<datalist id="filtercutoff-vals">
+				<option value="0" label="min">
+				<option value="1" label="max">
+			</datalist>
+			<label for="filtercutoff">FilterCutoff</label>
+			</br>
+-->			
+
+		</section>
+
+		<section class="tape">
+
+			<audio src="/boop.wav" crossorigin="anonymous" ></audio>
+
+<!-- 			type="audio/mpeg" -->
+
+			<button data-playing="false" class="tape-controls-play" role="switch" aria-checked="false">
+				<span>Play/Pause</span>
+			</button>
+		</section>
+
+	</div>
+</div>
+
+<script type="text/javascript">
+	console.clear();
+	
+class StateVariableFilter {
+  
+  constructor(sampleRate_, hz_) {
+    this.sampleRate = sampleRate_;
+    this.state1 = 0.0;
+    this.state2 = 0.0;
+    this.lp = 0.0;
+    this.hp = 0.0;
+    this.bp = 0.0;
+    this.o = 0.0;
+    this.h = 0.0;
+    this.Q = 1.0;
+	this.setFreq(hz_);
+  }
+  
+  setFreq(hz_) {
+    this.o = Math.tan((hz_ / this.sampleRate) * Math.PI);
+	this.h = 1.0 / (1.0 + this.o / this.Q + this.o * this.o);
+  }
+  
+  process(in_) {
+    this.hp = this.h * (in_ - (1.0 / this.Q + this.o) * this.state1 - this.state2);
+    this.bp = this.o*this.hp + this.state1;
+    this.state1 = this.o*this.hp + this.bp;
+    this.lp = this.o*this.bp + this.state2;
+    this.state2 = this.o*this.bp + this.lp;  
+  }
+  
+  lowpass() {
+    return this.lp;
+  }
+  
+  bandpass() {
+    return this.bp;
+  }
+  
+  highpass() {
+    return this.hp;
+  }
+
+}
+
+
+
+class DelayLine {
+  constructor(length) {
+    this.data = new Array(length).fill(0.0);
+	const end = length - 1;
+	this.end = end;
+	this.current = 0;
+	this.delay = end;
+  }
+  
+  clear() {
+    this.current = 0;
+	this.delay = end;
+	this.data.fill(0.0);
+  }
+  
+  
+  lerp(a_, b_, m_) {
+    return (1.0 - m_) * a_ + m_ * b_;
+  }
+  
+  //0..1
+  set_delay(delay_) {
+    this.delay = Math.round(delay_ * this.end);
+  }
+  
+  
+  
+  set(sample) {
+    this.data[this.current] = sample;
+	this.current++;
+	if(this.current > this.end) {
+	  this.current = 0;
+	}
+  }
+  
+  get_delay() {
+    var index = this.current - this.delay;
+    if (index < 0) {
+    	index += this.end;
+    }
+    
+    return this.data[index];
+  }
+  
+  //Tap the delay line at offset_ samples
+  //offset_ is a floating point variable
+  //0..S-2
+  tap(offset_) {
+  	var index = this.current - offset_;
+	if (index < 0) {
+		index += this.end;
+	}
+
+	return this.data[index];
+  }
+  
+  //MATH.round()
+  
+  
+}
+
+const hadamard = [
+ 1, 1, 1, 1,
+ 1,-1, 1,-1,
+ 1, 1,-1,-1,
+ 1,-1,-1, 1
+];
+ 
+ //See Studio Sound 1972 issue 12 Synthetic Stereo Reverberation
+ //By Michael Gerzon
+ //And this talk by Tom Erbe https://www.youtube.com/watch?v=Il_qdtQKnqk
+class GainMatrix {
+  constructor() {
+    
+	//What we want is 360 of these:
+    //cos(a), sin(a), cos(a), sin(a)
+    //sin(a),-cos(a), sin(a),-cos(a)
+    //cos(a), sin(a),-cos(a),-sin(a)
+    //sin(a),-cos(a),-sin(a), cos(a)
+	
+	this.table = new Array(361);
+    for(var angle = 0; angle < this.table.length; angle++) {
+	  var coupling_angle = angle * (Math.PI/180);
+	  this.table[angle] = new Array(16).fill(0.0);
+	  
+	  for(var i = 0; i < 16; i++) {
+	    this.table[angle][i] = ((i % 2 == 0) ? Math.cos(coupling_angle) : Math.sin(coupling_angle)) * hadamard[i];
+	  }
+	
+	}
+  }
+  
+  process(angle, in_) {
+    var out = new Array(4);
+    out[0] = in_[0] * this.table[angle][0]  + in_[1] * this.table[angle][1]  + in_[2] * this.table[angle][2]  + in_[3] * this.table[angle][3];
+    out[1] = in_[0] * this.table[angle][4]  + in_[1] * this.table[angle][5]  + in_[2] * this.table[angle][6]  + in_[3] * this.table[angle][7];
+    out[2] = in_[0] * this.table[angle][8]  + in_[1] * this.table[angle][9]  + in_[2] * this.table[angle][10] + in_[3] * this.table[angle][11];
+    out[3] = in_[0] * this.table[angle][12] + in_[1] * this.table[angle][13] + in_[2] * this.table[angle][14] + in_[3] * this.table[angle][15];
+	return out;
+  }
+
+
+
+}
+
+const filterMin = 80.0;
+const filterMax = 8000.0;
+
+
+
+class FDN4x4 {
+  constructor(sampleRate_) {
+    const DT = 1.0/sampleRate_;
+	const delay_lfo_rates = [ 0.279 * DT, 0.224 * DT, 0.508 * DT, 0.391 * DT ];
+	const ap_lfo_rates = [ 0.073 * DT, 0.064 * DT, 0.079 * DT, 0.087 * DT ];
+	this.delay_lfo_rates = delay_lfo_rates;
+	this.ap_lfo_rates = ap_lfo_rates;
+	
+	this.matrix = new GainMatrix();
+	this.delay_lfo_phase = [ 0.0, 0.0, 0.0, 0.0 ];
+	this.ap_lfo_phase = [ 0.0, 0.0, 0.0, 0.0 ];
+	this.in_data = [ 0.0, 0.0, 0.0, 0.0 ];
+	this.last_data = [ 0.0, 0.0, 0.0, 0.0 ];
+	this.filters = [ new StateVariableFilter(sampleRate_, 400.0), 
+	                 new StateVariableFilter(sampleRate_, 400.0), 
+					 new StateVariableFilter(sampleRate_, 400.0),
+					 new StateVariableFilter(sampleRate_, 400.0)  ];
+					 
+	this.delays = [ new DelayLine(6599),
+	                new DelayLine(5519),
+	                new DelayLine(6491),
+	                new DelayLine(5689)  ];
+					
+	this.ap_delays = [ new DelayLine(1367),
+	                   new DelayLine(6263),
+                       new DelayLine(1014),
+                       new DelayLine(6615)  ];
+					   
+    this.decay = 0.0;
+	this.diffusion = 0.4;
+	this.angle = 0;
+	this.mix = 0.5;
+	this.out_l = 0.0;
+	this.out_r = 0.0;
+  
+  }
+  
+  crossfade(a_, b_, m_) {
+	return a_ + m_ * (b_ - a_);
+  }
+  
+  //soft clipping
+  saturate(in_) {
+    return in_ / (1.0 + Math.abs(in_));
+  }
+  
+  //0-1
+  set_damping(damping_) {
+    for(var i = 0; i < 4; i++) {
+	  var hz = filterMin * Math.pow(filterMax / filterMin, damping_);
+	  this.filters[i].setFreq(hz);
+	}
+  }
+  
+  //0-.5
+  set_diffusion(diffusion_) {
+    this.diffusion = diffusion_;
+  }
+  
+  //0..1
+  set_decay(decay_) {
+    this.decay = decay_;
+  }
+  
+  set_mix(mix_) {
+    this.mix = mix_;
+  }
+  
+  get_l() {
+    return this.out_l;
+  }
+  
+  get_r() {
+    return this.out_r;
+  }
+  
+  
+  //0-360, in_[0..1]  out_[0..1]
+  process(angle_, in_l, in_r) {
+    //
+	// x4, input on 0 and 1 only
+	//
+	//  +---> in 
+	//  |      |
+	//  |      v
+	//  |    lowPass filter
+	//  decay  |
+	//  |      v	
+	//  |    allpass filter (modulated)
+	//  |      |
+	//  |      v
+    //  |    delay	(modulated)
+	//  |      |
+	//  |      v	
+	//  |    gain matrix
+	//  |     |
+	//  +-----v		
+	//        
+	//
+  	
+	this.filters[0].process((this.last_data[0] * this.decay ) + in_l);
+	this.filters[1].process((this.last_data[1] * this.decay ) + in_r);
+	this.filters[2].process((this.last_data[2] * this.decay ));
+	this.filters[3].process((this.last_data[3] * this.decay ));
+	
+	const tmp_a = (this.filters[0].lowpass() + (this.ap_delays[0].get_delay() * this.diffusion));
+    const tmp_b = (this.filters[1].lowpass() + (this.ap_delays[1].get_delay() * this.diffusion));
+    const tmp_c = (this.filters[2].lowpass() + (this.ap_delays[2].get_delay() * this.diffusion));
+    const tmp_d = (this.filters[3].lowpass() + (this.ap_delays[3].get_delay() * this.diffusion));
+	
+	
+	this.ap_delays[0].set_delay(0.9 + (0.1 * Math.sin(2.0 * Math.PI * this.ap_lfo_phase[0])));
+	this.ap_delays[1].set_delay(0.9 + (0.1 * Math.sin(2.0 * Math.PI * this.ap_lfo_phase[1])));
+	this.ap_delays[2].set_delay(0.9 + (0.1 * Math.sin(2.0 * Math.PI * this.ap_lfo_phase[2])));
+	this.ap_delays[3].set_delay(0.9 + (0.1 * Math.sin(2.0 * Math.PI * this.ap_lfo_phase[3])));
+	
+	this.ap_delays[0].set(tmp_a * -this.diffusion);
+	this.ap_delays[1].set(tmp_b * -this.diffusion);
+	this.ap_delays[2].set(tmp_c * -this.diffusion);
+	this.ap_delays[3].set(tmp_d * -this.diffusion);
+	
+    this.delays[0].set(tmp_a);
+    this.delays[1].set(tmp_b);
+    this.delays[2].set(tmp_c);
+    this.delays[3].set(tmp_d);
+	
+	const mod_a = Math.sin(2.0 * Math.PI * this.delay_lfo_phase[0]);
+	const mod_b = Math.sin(2.0 * Math.PI * this.delay_lfo_phase[1]);
+	const mod_c = Math.sin(2.0 * Math.PI * this.delay_lfo_phase[2]);
+	const mod_d = Math.sin(2.0 * Math.PI * this.delay_lfo_phase[3]);
+	
+	
+	for (var i = 0; i < 4; i++) {
+	  this.delay_lfo_phase[i] += this.delay_lfo_rates[i];
+	  if (this.delay_lfo_phase[i] > 1.0) {
+	    this.delay_lfo_phase[i] -= 1.0;
+	  }
+	  
+	  this.ap_lfo_phase[i] += this.ap_lfo_rates[i];
+	  if (this.ap_lfo_phase[i] > 1.0) {
+	    this.ap_lfo_phase[i] -= 1.0;
+	  }
+	}
+	
+	
+	//No size modulation
+	this.in_data[0] = this.delays[0].tap(32 + (this.delays[0].data.length - 65) + Math.round(mod_a * 31));
+    this.in_data[1] = this.delays[1].tap(38 + (this.delays[1].data.length - 77) + Math.round(mod_b * 37));
+    this.in_data[2] = this.delays[2].tap(42 + (this.delays[2].data.length - 85) + Math.round(mod_c * 41));
+    this.in_data[3] = this.delays[3].tap(48 + (this.delays[3].data.length - 97) + Math.round(mod_d * 47));
+	
+	this.last_data = this.matrix.process(angle_, this.in_data);
+	
+	this.last_data[0] = this.saturate(this.last_data[0]);
+	this.last_data[1] = this.saturate(this.last_data[1]);
+	this.last_data[2] = this.saturate(this.last_data[2]);
+	this.last_data[3] = this.saturate(this.last_data[3]);
+	
+	
+	this.out_l = this.last_data[0] + this.last_data[1];
+	this.out_r = this.last_data[2] + this.last_data[3];
+
+
+  }
+
+
+}
+
+
+// instigate our audio context
+// for cross browser
+//const audioCtx = window.AudioContext || window.webkitAudioContext;
+var audioCtx = new (typeof AudioContext !== "undefined" && AudioContext !== null ? AudioContext : webkitAudioContext);
+
+const fdnEffect = new FDN4x4(audioCtx.sampleRate);
+
+var angle = 180;
+
+var effect = (function() {
+  var node = audioCtx.createScriptProcessor(0, 2, 2);
+  node.onaudioprocess = function(e) {
+  
+    var input = [ e.inputBuffer.getChannelData(0), e.inputBuffer.getChannelData(1) ];
+    var output = [ e.outputBuffer.getChannelData(0), e.outputBuffer.getChannelData(1) ];
+     
+    for (var i = 0; i < input[0].length; i++) {
+	  fdnEffect.process(angle, input[0][i], input[1][i]);
+	  output[0][i] = fdnEffect.crossfade(input[0][i], fdnEffect.get_l(), fdnEffect.mix);
+	  output[1][i] = fdnEffect.crossfade(input[1][i], fdnEffect.get_r(), fdnEffect.mix);
+    }
+    
+    
+  }
+    return node;
+})();
+
+//var effect = (function() {
+//  var node = audioCtx.createScriptProcessor(0, 1, 1);
+//  node.onaudioprocess = function(e) {
+//  
+//    var input = e.inputBuffer.getChannelData(0);
+//    var output = e.outputBuffer.getChannelData(0);
+//    
+//    for (var i = 0; i < input.length; i++) {
+//	  stvFilter.process(input[i]);
+//	  output[i] = stvFilter.lowpass();
+//    }
+//    
+//    
+//  }
+//    return node;
+//})();
+
+
+// load some sound
+const audioElement = document.querySelector('audio');
+const track = audioCtx.createMediaElementSource(audioElement);
+const playButton = document.querySelector('.tape-controls-play');
+// play pause audio
+playButton.addEventListener('click', function() {
+	// check if context is in suspended state (autoplay policy)
+	if (audioCtx.state === 'suspended') {
+		audioCtx.resume();
+	}
+	if (this.dataset.playing === 'false') {
+		audioElement.play();
+		this.dataset.playing = 'true';
+	// if track is playing pause it
+	} else if (this.dataset.playing === 'true') {
+		audioElement.pause();
+		this.dataset.playing = 'false';
+	}
+	let state = this.getAttribute('aria-checked') === "true" ? true : false;
+	this.setAttribute( 'aria-checked', state ? "false" : "true" );
+}, false);
+
+document.getElementById("angle_data").innerHTML = angle;
+
+// if track ends
+audioElement.addEventListener('ended', () => {
+	playButton.dataset.playing = 'false';
+	playButton.setAttribute( "aria-checked", "false" );
+}, false);
+
+
+// volume
+const gainNode = audioCtx.createGain();
+const volumeControl = document.querySelector('[data-action="volume"]');
+volumeControl.addEventListener('input', function() {
+	gainNode.gain.value = this.value;
+}, false);
+
+// decay
+const decayControl = document.querySelector('[data-action="decay"]');
+decayControl.addEventListener('input', function() {
+  fdnEffect.set_decay(this.value);
+}, false);
+
+// diffusion
+const diffusionControl = document.querySelector('[data-action="diffusion"]');
+diffusionControl.addEventListener('input', function() {
+  fdnEffect.set_diffusion(this.value);
+}, false);
+
+// damping
+const dampingControl = document.querySelector('[data-action="damping"]');
+dampingControl.addEventListener('input', function() {
+  fdnEffect.set_damping(this.value);
+}, false);
+
+
+// angle
+const angleControl = document.querySelector('[data-action="angle"]');
+angleControl.addEventListener('input', function() {
+  angle = this.value;
+}, false);
+
+// mix
+const mixControl = document.querySelector('[data-action="mix"]');
+mixControl.addEventListener('input', function() {
+  fdnEffect.set_mix(this.value);
+}, false);
+
+// filtercutoff
+//const filtercutoffControl = document.querySelector('[data-action="filtercutoff"]');
+//filtercutoffControl.addEventListener('input', function() {
+//  stvFilter.setFreq(minCutoff * Math.pow(maxCutoff / minCutoff, this.value));
+//}, false);
+
+
+// connect our graph
+//track.connect(gainNode).connect(panner).connect(audioCtx.destination);
+track.connect(gainNode).connect(effect).connect(audioCtx.destination);
+
+</script>
+
+</body>
+</html>
