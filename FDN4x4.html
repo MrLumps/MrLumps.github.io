@@ -524,6 +524,7 @@ dampingControl.addEventListener('input', function() {
 const angleControl = document.querySelector('[data-action="angle"]');
 angleControl.addEventListener('input', function() {
   angle = this.value;
+  document.getElementById("angle_data").innerHTML = angle;
 }, false);
 
 // mix
